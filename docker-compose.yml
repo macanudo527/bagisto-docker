@@ -9,7 +9,7 @@ services:
       dockerfile: ./Dockerfile
     image: bagisto-php-apache
     ports:
-      - 80:80
+      - 8001:80
     volumes:
       - ./workspace/:/var/www/html/
 
@@ -27,7 +27,7 @@ services:
   bagisto-redis:
     image: redis:6.2-alpine
     ports:
-      - 6379:6379
+      - 6380:6379
     command: redis-server --save 20 1 --loglevel warning
     volumes:
       - ./.configs/redis-data:/data
@@ -41,6 +41,14 @@ services:
       UPLOAD_LIMIT: 512M
     ports:
       - 8080:80
+
+  bagisto-cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: eyJhIjoiNzE3MzFkYWE2N2M2Nzg1YzM4ZDA0YTYwZTRhMjJjMmIiLCJ0IjoiODZlMzZkM2ItMGExNC00ODdhLWJiNDEtOGYzOTU3ZDdmNGYyIiwicyI6Ik5ETTVZbVkyT1dZdFlUUTVOaTAwTkdKbExXRmpZVE10TURCaE1qSXlPVE14WkRJMyJ9
+    depends_on:
+      - bagisto-php-apache
 
   bagisto-mailpit:
     image: axllent/mailpit:latest
