@@ -86,6 +86,16 @@ Theme views are resolved in this priority order:
 
 Run `php artisan vendor:publish --tag=top-things-views` to re-publish from package source. After any view change run `php artisan optimize:clear` (not just `view:clear`) to flush all six cache types.
 
+The TopThings Tailwind config (`packages/Webkul/TopThings/tailwind.config.js`) scans **both** package source views and published views:
+```js
+content: [
+    "./src/Resources/**/*.blade.php",
+    "./src/Resources/**/*.js",
+    "../../../resources/themes/top-things/views/**/*.blade.php",
+]
+```
+Any new Tailwind utility class added to a published view requires a theme CSS rebuild to take effect. Do not use inline `<style>` blocks as a workaround — run the build instead.
+
 ### Environment Files
 
 `.configs/.env` and `.configs/.env.testing` are the source-of-truth env files copied into the container during setup. Key values:
@@ -118,6 +128,7 @@ Run `php artisan vendor:publish --tag=top-things-views` to re-publish from packa
 ### Domain Concepts
 
 - **SightListing product** — configurable product type with `area_id` (derived from the leaf-node category) and variants that carry a `time_required` attribute (minutes).
+- **Restaurant product** — simple product type (`type=restaurant`) for dining listings. Has its own product page layout and `getPriceHtml()` that returns the `price_tier` EAV field (¥/¥¥/¥¥¥) instead of a Bagisto currency price. Key attributes: `cuisine`, `price_tier`, `meal_type`, `hours_of_operation`, `reservation`, `location` (lat,long CSV), `dietary_options` (comma-separated: vegetarian/vegan/halal/gluten_free), `link_to_website`, `kid_rating` (numeric 1–10), `stroller_friendly`, `what_to_order`.
 - **ItineraryAreaBlock** — a geographic area in the cart, with `block_order`, `days_allocated`, and `total_time`.
 - **AreaDay** — an individual day inside an area block, with `day_number` and `total_time`.
 - **CartItem** — linked to an `AreaDay` via `area_day_id`; ordered within the day by `order_in_day`.
@@ -129,7 +140,7 @@ Cart  (total_time, name, share_token)
  └── ItineraryAreaBlock  (block_order, days_allocated, total_time)
       └── AreaDay  (day_number, total_time)
            └── CartItem  (order_in_day, area_day_id)
-                └── Product  (area_id, type: sight_listing | sight_variant)
+                └── Product  (area_id, type: sight_listing | sight_variant | restaurant)
                      └── Variant  (time_required attribute)
 ```
 
@@ -154,6 +165,8 @@ Cart  (total_time, name, share_token)
 | `AreaDayRepository` | `Repositories/AreaDayRepository.php` | `moveDayNumber()` reorders days within an area transactionally |
 | `CartItemRepository` | `Repositories/CartItemRepository.php` | `decrementOrderAfter()` / `incrementOrderFrom()` maintain `order_in_day` sequence |
 | `SightListing` (type) | `Type/SightListing.php` | Custom configurable product type; `create()` sets `area_id` from category hierarchy; `prepareForCart()` packages variants |
+| `Restaurant` (type) | `Type/Restaurant.php` | Simple product type for dining listings; overrides `getPriceHtml()` to return `price_tier` (¥ symbols) instead of currency; `getLatitudeLongitude()` parses `location` CSV; `prepareForCart()` assigns `order_in_day` |
+| `ProductCardOption` | `Helpers/ProductCardOption.php` | Builds sight-card config for the product detail sidebar; shows Cost card for `sight_listing`, Price Range card for `restaurant`; guards `getMinTime()`/`getMaxTime()` with `instanceof SightListingType` check |
 | `Importer` | `Helpers/Importer.php` | Extends BaseImporter; `prepareProductsWithAreas()` extracts `area_id` from the leaf-node category during bulk import |
 | `SightListingOption` | `Helpers/SightListingOption.php` | `getTimes()` maps variant IDs → formatted durations for the product configuration UI |
 | `ItineraryController` (API) | `Http/Controllers/API/ItineraryController.php` | CRUD for saved itineraries (auth-gated): list, save, show, rename, delete |
@@ -225,6 +238,22 @@ All routes are prefixed `/api`.
 - Items within a day: `moveItem` — calls `CartItemRepository::decrementOrderAfter()` + `incrementOrderFrom()` around the target slot.
 - Days within an area: `updateDayOrder` — calls `AreaDayRepository::moveDayNumber()` in a transaction using temp values.
 - Areas in itinerary: `updateAreaOrder` — calls `ItineraryAreaBlockRepository::moveArea()` in a transaction using temp values.
+
+### Restaurant Product View
+
+`resources/themes/top-things/views/products/view/restaurant.blade.php` is the restaurant-specific product page, included from `view.blade.php` when `$product->type === 'restaurant'`. It replaces the standard `<v-product>` component and skips the sightseeing score bars and travel-tips sections entirely.
+
+Layout (desktop): left column — 280px cuisine icon anchor (coloured tinted bg, emoji + cuisine label); right column — fact grid (price, meal, hours, reservation, location, dietary), website link, family badges (kid rating · X/10, stroller), Add to Itinerary button. Below: description + what to order in a side-by-side row.
+
+On mobile (≤525px): anchor goes full-width above the details; lower section stacks to column.
+
+Dietary icons map: 🥗 Veg · 🌱 Vegan · ☪️ Halal · 🌾 GF. `none_documented` is filtered out and shows italic "None documented" instead.
+
+`kid_rating` is stored as a numeric value (e.g. `5`) and rendered as "Kid rating · 5/10".
+
+The `<v-restaurant-product>` Vue component handles only add-to-cart and bucketlist toggle; all other content is rendered by Blade.
+
+`what_to_order` in the cart item view uses `v-html` (not `{{ }}` interpolation) because it is stored as HTML. Loominate exports it as raw markdown (bold only: `**dish**`); the importer converts `**bold**` → `<strong>` (with `htmlspecialchars` escaping) before storing.
 
 ### Frontend
 
